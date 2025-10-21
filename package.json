@@ -1,0 +1,7 @@
+{
+  "name": "learning_platform",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Browser-based adaptive learning experience powered by the Anthropic API.",
+  "license": "MIT"
+}
