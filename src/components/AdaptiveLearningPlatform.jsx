@@ -1,8 +1,241 @@
-import React, { useState } from 'react';
-import { BookOpen, Brain, CheckCircle, ArrowRight, Sparkles, Target, Zap } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import {
+  ArrowRight,
+  BookOpen,
+  Brain,
+  CheckCircle,
+  Sparkles,
+  Target,
+  Zap,
+} from 'lucide-react';
 
-export default function AdaptiveLearningPlatform() {
-  const [screen, setScreen] = useState('setup'); // setup, learning, quiz, complete
+const ANTHROPIC_API_URL = 'https://api.anthropic.com/v1/messages';
+
+const learningStylesDefinition = [
+  {
+    id: 'visual',
+    name: 'Visual',
+    icon: '👁️',
+    description: 'Diagrams, examples, and visual explanations',
+  },
+  {
+    id: 'practical',
+    name: 'Practical',
+    icon: '🛠️',
+    description: 'Hands-on exercises and real-world applications',
+  },
+  {
+    id: 'theoretical',
+    name: 'Theoretical',
+    icon: '📚',
+    description: 'Deep concepts and theoretical foundations',
+  },
+  {
+    id: 'balanced',
+    name: 'Balanced',
+    icon: '⚖️',
+    description: 'Mix of theory, examples, and practice',
+  },
+];
+
+const skillLevelsDefinition = [
+  { id: 'beginner', name: 'Beginner', description: 'New to this topic' },
+  { id: 'intermediate', name: 'Intermediate', description: 'Some familiarity' },
+  { id: 'advanced', name: 'Advanced', description: 'Strong foundation' },
+];
+
+const inferStyleInstruction = (learningStyle) => {
+  switch (learningStyle) {
+    case 'visual':
+      return 'use concrete examples and analogies';
+    case 'practical':
+      return 'focus on real-world applications and how to use this knowledge';
+    case 'theoretical':
+      return 'explain underlying principles and concepts deeply';
+    default:
+      return 'balance theory with practical examples';
+  }
+};
+
+const anthropicHeaders = () => {
+  const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error('Missing VITE_ANTHROPIC_API_KEY environment variable.');
+  }
+
+  return {
+    'Content-Type': 'application/json',
+    'x-api-key': apiKey,
+    'anthropic-version': import.meta.env.VITE_ANTHROPIC_API_VERSION || '2023-06-01',
+  };
+};
+
+const MarkdownRenderer = ({ content }) => {
+  if (!content) {
+    return null;
+  }
+
+  const lines = content.split('\n');
+  const elements = [];
+
+  const processBold = (text, startKey = 0) => {
+    const parts = [];
+    const boldRegex = /(\*\*|__)(.*?)\1/g;
+    let lastIndex = 0;
+    let match;
+    let key = startKey;
+
+    while ((match = boldRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        parts.push(text.substring(lastIndex, match.index));
+      }
+      parts.push(
+        <strong key={`bold-${key++}`} className="font-semibold">
+          {match[2]}
+        </strong>,
+      );
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+      parts.push(text.substring(lastIndex));
+    }
+
+    return parts.length > 0 ? parts : [text];
+  };
+
+  const processInlineMarkdown = (text) => {
+    const inlineCodeRegex = /`([^`]+)`/g;
+    const parts = [];
+    let lastIndex = 0;
+    let match;
+    let key = 0;
+
+    while ((match = inlineCodeRegex.exec(text)) !== null) {
+      if (match.index > lastIndex) {
+        const beforeText = text.substring(lastIndex, match.index);
+        parts.push(...processBold(beforeText, key++));
+      }
+      parts.push(
+        <code
+          key={`code-${key++}`}
+          className="bg-gray-100 px-2 py-0.5 rounded text-sm font-mono text-purple-700"
+        >
+          {match[1]}
+        </code>,
+      );
+      lastIndex = match.index + match[0].length;
+    }
+
+    if (lastIndex < text.length) {
+      const remainingText = text.substring(lastIndex);
+      parts.push(...processBold(remainingText, key++));
+    }
+
+    return parts.length > 0 ? parts : text;
+  };
+
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmedLine = line.trim();
+
+    if (trimmedLine.startsWith('```')) {
+      const language = trimmedLine.substring(3).trim();
+      const codeLines = [];
+      i += 1;
+
+      while (i < lines.length && !lines[i].trim().startsWith('```')) {
+        codeLines.push(lines[i]);
+        i += 1;
+      }
+
+      elements.push(
+        <div key={`code-block-${elements.length}`} className="mb-4">
+          {language && (
+            <div className="bg-gray-700 text-gray-300 text-xs px-4 py-2 rounded-t-lg font-mono">
+              {language}
+            </div>
+          )}
+          <pre
+            className={`bg-gray-800 text-gray-100 p-4 ${language ? 'rounded-b-lg' : 'rounded-lg'} overflow-x-auto`}
+          >
+            <code className="text-sm font-mono">{codeLines.join('\n')}</code>
+          </pre>
+        </div>,
+      );
+      i += 1;
+      continue;
+    }
+
+    if (trimmedLine.startsWith('###')) {
+      elements.push(
+        <h3 key={`h3-${elements.length}`} className="text-lg font-semibold text-gray-800 mt-6 mb-3">
+          {processInlineMarkdown(trimmedLine.replace(/^###\s*/, ''))}
+        </h3>,
+      );
+    } else if (trimmedLine.startsWith('##')) {
+      elements.push(
+        <h2 key={`h2-${elements.length}`} className="text-xl font-semibold text-gray-800 mt-6 mb-3">
+          {processInlineMarkdown(trimmedLine.replace(/^##\s*/, ''))}
+        </h2>,
+      );
+    } else if (trimmedLine.startsWith('#')) {
+      elements.push(
+        <h1 key={`h1-${elements.length}`} className="text-2xl font-semibold text-gray-800 mt-6 mb-4">
+          {processInlineMarkdown(trimmedLine.replace(/^#\s*/, ''))}
+        </h1>,
+      );
+    } else if (/^[-*•]\s/.test(trimmedLine)) {
+      const listItems = [];
+      while (i < lines.length && /^[-*•]\s/.test(lines[i].trim())) {
+        listItems.push(lines[i].trim().replace(/^[-*•]\s/, ''));
+        i += 1;
+      }
+      elements.push(
+        <ul key={`list-${elements.length}`} className="list-disc pl-6 mb-4 space-y-2">
+          {listItems.map((item, idx) => (
+            <li key={idx} className="text-gray-700">
+              {processInlineMarkdown(item)}
+            </li>
+          ))}
+        </ul>,
+      );
+      continue;
+    } else if (/^\d+\.\s/.test(trimmedLine)) {
+      const listItems = [];
+      while (i < lines.length && /^\d+\.\s/.test(lines[i].trim())) {
+        listItems.push(lines[i].trim().replace(/^\d+\.\s/, ''));
+        i += 1;
+      }
+      elements.push(
+        <ol key={`olist-${elements.length}`} className="list-decimal pl-6 mb-4 space-y-2">
+          {listItems.map((item, idx) => (
+            <li key={idx} className="text-gray-700">
+              {processInlineMarkdown(item)}
+            </li>
+          ))}
+        </ol>,
+      );
+      continue;
+    } else if (trimmedLine === '') {
+      elements.push(<div key={`space-${elements.length}`} className="h-4" />);
+    } else if (trimmedLine.length > 0) {
+      elements.push(
+        <p key={`p-${elements.length}`} className="text-gray-700 mb-4 leading-relaxed">
+          {processInlineMarkdown(trimmedLine)}
+        </p>,
+      );
+    }
+
+    i += 1;
+  }
+
+  return <div>{elements}</div>;
+};
+
+const AdaptiveLearningPlatform = () => {
+  const [screen, setScreen] = useState('setup');
   const [subject, setSubject] = useState('');
   const [skillLevel, setSkillLevel] = useState('beginner');
   const [learningStyle, setLearningStyle] = useState('balanced');
@@ -13,193 +246,19 @@ export default function AdaptiveLearningPlatform() {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Simple markdown renderer
-  const renderMarkdown = (text) => {
-    if (!text) return null;
-   
-    const elements = [];
-    let i = 0;
-    const lines = text.split('\n');
-   
-    const processInlineMarkdown = (text) => {
-      const parts = [];
-      let currentText = text;
-      let key = 0;
-     
-      // Process inline code first: `code`
-      const inlineCodeRegex = /`([^`]+)`/g;
-      let lastIndex = 0;
-      let match;
-     
-      while ((match = inlineCodeRegex.exec(currentText)) !== null) {
-        // Add text before code
-        if (match.index > lastIndex) {
-          const beforeText = currentText.substring(lastIndex, match.index);
-          // Process bold in the text before
-          parts.push(...processBold(beforeText, key++));
-        }
-        // Add inline code
-        parts.push(
-          <code key={`code-${key++}`} className="bg-gray-100 px-2 py-0.5 rounded text-sm font-mono text-purple-700">
-            {match[1]}
-          </code>
-        );
-        lastIndex = match.index + match[0].length;
-      }
-     
-      // Add remaining text
-      if (lastIndex < currentText.length) {
-        const remainingText = currentText.substring(lastIndex);
-        parts.push(...processBold(remainingText, key++));
-      }
-     
-      return parts.length > 0 ? parts : text;
-    };
-   
-    const processBold = (text, startKey = 0) => {
-      const parts = [];
-      const boldRegex = /(\*\*|__)(.*?)\1/g;
-      let lastIndex = 0;
-      let match;
-      let key = startKey;
-     
-      while ((match = boldRegex.exec(text)) !== null) {
-        if (match.index > lastIndex) {
-          parts.push(text.substring(lastIndex, match.index));
-        }
-        parts.push(<strong key={`bold-${key++}`} className="font-semibold">{match[2]}</strong>);
-        lastIndex = match.index + match[0].length;
-      }
-     
-      if (lastIndex < text.length) {
-        parts.push(text.substring(lastIndex));
-      }
-     
-      return parts.length > 0 ? parts : [text];
-    };
-   
-    while (i < lines.length) {
-      const line = lines[i];
-      const trimmedLine = line.trim();
-     
-      // Code blocks: ```language
-      if (trimmedLine.startsWith('```')) {
-        const language = trimmedLine.substring(3).trim();
-        const codeLines = [];
-        i++;
-       
-        while (i < lines.length && !lines[i].trim().startsWith('```')) {
-          codeLines.push(lines[i]);
-          i++;
-        }
-       
-        elements.push(
-          <div key={`code-block-${elements.length}`} className="mb-4">
-            {language && (
-              <div className="bg-gray-700 text-gray-300 text-xs px-4 py-2 rounded-t-lg font-mono">
-                {language}
-              </div>
-            )}
-            <pre className={`bg-gray-800 text-gray-100 p-4 ${language ? 'rounded-b-lg' : 'rounded-lg'} overflow-x-auto`}>
-              <code className="text-sm font-mono">{codeLines.join('\n')}</code>
-            </pre>
-          </div>
-        );
-        i++; // Skip closing ```
-        continue;
-      }
-     
-      // Headers
-      if (trimmedLine.startsWith('###')) {
-        elements.push(
-          <h3 key={`h3-${elements.length}`} className="text-lg font-semibold text-gray-800 mt-6 mb-3">
-            {processInlineMarkdown(trimmedLine.replace(/^###\s*/, ''))}
-          </h3>
-        );
-      } else if (trimmedLine.startsWith('##')) {
-        elements.push(
-          <h2 key={`h2-${elements.length}`} className="text-xl font-semibold text-gray-800 mt-6 mb-3">
-            {processInlineMarkdown(trimmedLine.replace(/^##\s*/, ''))}
-          </h2>
-        );
-      } else if (trimmedLine.startsWith('#')) {
-        elements.push(
-          <h1 key={`h1-${elements.length}`} className="text-2xl font-semibold text-gray-800 mt-6 mb-4">
-            {processInlineMarkdown(trimmedLine.replace(/^#\s*/, ''))}
-          </h1>
-        );
-      }
-      // List items
-      else if (trimmedLine.match(/^[-*•]\s/)) {
-        const listItems = [];
-        while (i < lines.length && lines[i].trim().match(/^[-*•]\s/)) {
-          listItems.push(lines[i].trim().replace(/^[-*•]\s/, ''));
-          i++;
-        }
-        elements.push(
-          <ul key={`list-${elements.length}`} className="list-disc pl-6 mb-4 space-y-2">
-            {listItems.map((item, idx) => (
-              <li key={idx} className="text-gray-700">{processInlineMarkdown(item)}</li>
-            ))}
-          </ul>
-        );
-        continue;
-      }
-      // Numbered lists
-      else if (trimmedLine.match(/^\d+\.\s/)) {
-        const listItems = [];
-        while (i < lines.length && lines[i].trim().match(/^\d+\.\s/)) {
-          listItems.push(lines[i].trim().replace(/^\d+\.\s/, ''));
-          i++;
-        }
-        elements.push(
-          <ol key={`olist-${elements.length}`} className="list-decimal pl-6 mb-4 space-y-2">
-            {listItems.map((item, idx) => (
-              <li key={idx} className="text-gray-700">{processInlineMarkdown(item)}</li>
-            ))}
-          </ol>
-        );
-        continue;
-      }
-      // Empty line
-      else if (trimmedLine === '') {
-        elements.push(<div key={`space-${elements.length}`} className="h-4"></div>);
-      }
-      // Regular paragraph
-      else if (trimmedLine.length > 0) {
-        elements.push(
-          <p key={`p-${elements.length}`} className="text-gray-700 mb-4 leading-relaxed">
-            {processInlineMarkdown(trimmedLine)}
-          </p>
-        );
-      }
-     
-      i++;
-    }
-   
-    return <div>{elements}</div>;
-  };
+  const learningStyles = useMemo(() => learningStylesDefinition, []);
+  const skillLevels = useMemo(() => skillLevelsDefinition, []);
 
-  const learningStyles = [
-    { id: 'visual', name: 'Visual', icon: '👁️', description: 'Diagrams, examples, and visual explanations' },
-    { id: 'practical', name: 'Practical', icon: '🛠️', description: 'Hands-on exercises and real-world applications' },
-    { id: 'theoretical', name: 'Theoretical', icon: '📚', description: 'Deep concepts and theoretical foundations' },
-    { id: 'balanced', name: 'Balanced', icon: '⚖️', description: 'Mix of theory, examples, and practice' }
-  ];
-
-  const skillLevels = [
-    { id: 'beginner', name: 'Beginner', description: 'New to this topic' },
-    { id: 'intermediate', name: 'Intermediate', description: 'Some familiarity' },
-    { id: 'advanced', name: 'Advanced', description: 'Strong foundation' }
-  ];
-
-  const generateLesson = async () => {
-    setLoading(true);
+  const generateLesson = useCallback(async () => {
     try {
+      setLoading(true);
       const lessonNumber = lessonHistory.length + 1;
-      const previousContext = lessonHistory.length > 0
-        ? `\n\nPrevious lessons covered: ${lessonHistory.map((l, i) => `Lesson ${i + 1}: ${l.title}`).join(', ')}`
-        : '';
+      const previousContext =
+        lessonHistory.length > 0
+          ? `\n\nPrevious lessons covered: ${lessonHistory
+              .map((lesson, index) => `Lesson ${index + 1}: ${lesson.title}`)
+              .join(', ')}`
+          : '';
 
       const prompt = `You are an expert educational AI creating lesson ${lessonNumber} about "${subject}".
 
@@ -216,12 +275,7 @@ INTRODUCTION:
 [2-3 sentences introducing the topic in an engaging way]
 
 MAIN_CONTENT:
-[The core lesson content. For ${learningStyle} learners, ${
-  learningStyle === 'visual' ? 'use concrete examples and analogies' :
-  learningStyle === 'practical' ? 'focus on real-world applications and how to use this knowledge' :
-  learningStyle === 'theoretical' ? 'explain underlying principles and concepts deeply' :
-  'balance theory with practical examples'
-}. Use clear sections and formatting. Make it substantive but digestible.]
+[The core lesson content. For ${learningStyle} learners, ${inferStyleInstruction(learningStyle)}. Use clear sections and formatting. Make it substantive but digestible.]
 
 KEY_TAKEAWAYS:
 [3-5 bullet points of the most important concepts]
@@ -231,20 +285,23 @@ PRACTICE_HINT:
 
 Keep the tone encouraging and enthusiastic. Adjust complexity for ${skillLevel} level.`;
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch(ANTHROPIC_API_URL, {
+        method: 'POST',
+        headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: import.meta.env.VITE_ANTHROPIC_MODEL || 'claude-3-5-sonnet-20240620',
           max_tokens: 2000,
-          messages: [{ role: "user", content: prompt }]
-        })
+          messages: [{ role: 'user', content: prompt }],
+        }),
       });
 
-      const data = await response.json();
-      const lessonText = data.content[0].text;
+      if (!response.ok) {
+        throw new Error(`Anthropic API returned ${response.status}`);
+      }
 
-      // Parse the lesson
+      const data = await response.json();
+      const lessonText = data?.content?.[0]?.text || '';
+
       const titleMatch = lessonText.match(/LESSON_TITLE:\s*(.+)/);
       const introMatch = lessonText.match(/INTRODUCTION:\s*([\s\S]+?)(?=MAIN_CONTENT:)/);
       const contentMatch = lessonText.match(/MAIN_CONTENT:\s*([\s\S]+?)(?=KEY_TAKEAWAYS:)/);
@@ -255,21 +312,22 @@ Keep the tone encouraging and enthusiastic. Adjust complexity for ${skillLevel} 
         introduction: introMatch ? introMatch[1].trim() : '',
         content: contentMatch ? contentMatch[1].trim() : lessonText,
         takeaways: takeawaysMatch ? takeawaysMatch[1].trim() : '',
-        timestamp: new Date().toISOString()
+        timestamp: new Date().toISOString(),
       };
 
       setCurrentLesson(lesson);
       setScreen('learning');
     } catch (error) {
       console.error('Error generating lesson:', error);
-      alert('Failed to generate lesson. Please try again.');
+      alert('Failed to generate lesson. Please check your API key and try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [lessonHistory, learningStyle, skillLevel, subject]);
 
-  const generateQuiz = async () => {
-    setLoading(true);
+  const generateQuiz = useCallback(async () => {
     try {
+      setLoading(true);
       const prompt = `Based on the lesson titled "${currentLesson.title}" about ${subject}, create ONE ${skillLevel}-level quiz question.
 
 Respond ONLY with valid JSON in this exact format (no other text, no backticks):
@@ -283,63 +341,57 @@ Respond ONLY with valid JSON in this exact format (no other text, no backticks):
 
 Make the question test understanding, not just memorization. Keep it relevant to ${skillLevel} level.`;
 
-      const response = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
+      const response = await fetch(ANTHROPIC_API_URL, {
+        method: 'POST',
+        headers: anthropicHeaders(),
         body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
+          model: import.meta.env.VITE_ANTHROPIC_MODEL || 'claude-3-5-sonnet-20240620',
           max_tokens: 800,
-          messages: [{ role: "user", content: prompt }]
-        })
+          messages: [{ role: 'user', content: prompt }],
+        }),
       });
 
+      if (!response.ok) {
+        throw new Error(`Anthropic API returned ${response.status}`);
+      }
+
       const data = await response.json();
-      let responseText = data.content[0].text;
-     
-      // Clean up response
-      responseText = responseText.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-     
+      let responseText = data?.content?.[0]?.text || '';
+      responseText = responseText.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
+
       const quiz = JSON.parse(responseText);
       setQuizData(quiz);
       setScreen('quiz');
     } catch (error) {
       console.error('Error generating quiz:', error);
-      alert('Failed to generate quiz. Please try again.');
+      alert('Failed to generate quiz. Please check your API key and try again.');
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  };
+  }, [currentLesson, skillLevel, subject]);
 
-  const submitQuiz = async () => {
+  const submitQuiz = useCallback(() => {
     if (!userAnswer) {
       alert('Please select an answer');
       return;
     }
 
-    const isCorrect = userAnswer === quizData.correctAnswer;
-   
-    // Update progress
+    const isCorrect = userAnswer === quizData?.correctAnswer;
     const newProgress = Math.min(100, progress + (isCorrect ? 15 : 5));
     setProgress(newProgress);
 
-    // Save lesson to history
-    setLessonHistory([...lessonHistory, {
-      ...currentLesson,
-      quizResult: isCorrect ? 'correct' : 'incorrect'
-    }]);
+    setLessonHistory((history) => [
+      ...history,
+      {
+        ...currentLesson,
+        quizResult: isCorrect ? 'correct' : 'incorrect',
+      },
+    ]);
 
-    // Show result and move to complete screen
     setScreen('complete');
-  };
+  }, [currentLesson, progress, quizData?.correctAnswer, userAnswer]);
 
-  const startNewLesson = () => {
-    setCurrentLesson(null);
-    setQuizData(null);
-    setUserAnswer('');
-    setScreen('learning');
-    generateLesson();
-  };
-
-  const restartPlatform = () => {
+  const restartPlatform = useCallback(() => {
     setScreen('setup');
     setSubject('');
     setCurrentLesson(null);
@@ -347,9 +399,15 @@ Make the question test understanding, not just memorization. Keep it relevant to
     setQuizData(null);
     setUserAnswer('');
     setProgress(0);
-  };
+  }, []);
 
-  // Setup Screen
+  const startNewLesson = useCallback(() => {
+    setCurrentLesson(null);
+    setQuizData(null);
+    setUserAnswer('');
+    generateLesson();
+  }, [generateLesson]);
+
   if (screen === 'setup') {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
@@ -370,20 +428,19 @@ Make the question test understanding, not just memorization. Keep it relevant to
               <input
                 type="text"
                 value={subject}
-                onChange={(e) => setSubject(e.target.value)}
+                onChange={(event) => setSubject(event.target.value)}
                 placeholder="e.g., Quantum Physics, French Cooking, Machine Learning..."
                 className="w-full px-4 py-3 border-2 border-gray-200 rounded-lg focus:border-purple-500 focus:outline-none"
               />
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Your skill level
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">Your skill level</label>
               <div className="grid grid-cols-3 gap-3">
                 {skillLevels.map((level) => (
                   <button
                     key={level.id}
+                    type="button"
                     onClick={() => setSkillLevel(level.id)}
                     className={`p-4 rounded-lg border-2 transition-all ${
                       skillLevel === level.id
@@ -399,13 +456,12 @@ Make the question test understanding, not just memorization. Keep it relevant to
             </div>
 
             <div>
-              <label className="block text-sm font-semibold text-gray-700 mb-3">
-                Learning style
-              </label>
+              <label className="block text-sm font-semibold text-gray-700 mb-3">Learning style</label>
               <div className="grid grid-cols-2 gap-3">
                 {learningStyles.map((style) => (
                   <button
                     key={style.id}
+                    type="button"
                     onClick={() => setLearningStyle(style.id)}
                     className={`p-4 rounded-lg border-2 transition-all text-left ${
                       learningStyle === style.id
@@ -424,13 +480,14 @@ Make the question test understanding, not just memorization. Keep it relevant to
             </div>
 
             <button
+              type="button"
               onClick={generateLesson}
               disabled={!subject || loading}
               className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
                   Crafting your first lesson...
                 </>
               ) : (
@@ -446,7 +503,6 @@ Make the question test understanding, not just memorization. Keep it relevant to
     );
   }
 
-  // Learning Screen
   if (screen === 'learning' && currentLesson) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
@@ -470,7 +526,7 @@ Make the question test understanding, not just memorization. Keep it relevant to
             )}
 
             <div className="prose max-w-none mb-6">
-              {renderMarkdown(currentLesson.content)}
+              <MarkdownRenderer content={currentLesson.content} />
             </div>
 
             {currentLesson.takeaways && (
@@ -479,26 +535,28 @@ Make the question test understanding, not just memorization. Keep it relevant to
                   <Target className="w-5 h-5 text-purple-600 mr-2" />
                   <h3 className="font-semibold text-gray-800">Key Takeaways</h3>
                 </div>
-                {renderMarkdown(currentLesson.takeaways)}
+                <MarkdownRenderer content={currentLesson.takeaways} />
               </div>
             )}
           </div>
 
           <div className="flex gap-4">
             <button
+              type="button"
               onClick={restartPlatform}
               className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:border-gray-400 transition-all"
             >
               Choose Different Topic
             </button>
             <button
+              type="button"
               onClick={generateQuiz}
               disabled={loading}
               className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 flex items-center justify-center"
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
                   Preparing practice...
                 </>
               ) : (
@@ -514,7 +572,6 @@ Make the question test understanding, not just memorization. Keep it relevant to
     );
   }
 
-  // Quiz Screen
   if (screen === 'quiz' && quizData) {
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
@@ -536,6 +593,7 @@ Make the question test understanding, not just memorization. Keep it relevant to
               {quizData.options.map((option, index) => (
                 <button
                   key={index}
+                  type="button"
                   onClick={() => setUserAnswer(option)}
                   className={`w-full p-4 rounded-lg border-2 text-left transition-all ${
                     userAnswer === option
@@ -544,14 +602,12 @@ Make the question test understanding, not just memorization. Keep it relevant to
                   }`}
                 >
                   <div className="flex items-center">
-                    <div className={`w-6 h-6 rounded-full border-2 mr-3 flex items-center justify-center ${
-                      userAnswer === option
-                        ? 'border-purple-500 bg-purple-500'
-                        : 'border-gray-300'
-                    }`}>
-                      {userAnswer === option && (
-                        <CheckCircle className="w-4 h-4 text-white" />
-                      )}
+                    <div
+                      className={`w-6 h-6 rounded-full border-2 mr-3 flex items-center justify-center ${
+                        userAnswer === option ? 'border-purple-500 bg-purple-500' : 'border-gray-300'
+                      }`}
+                    >
+                      {userAnswer === option && <CheckCircle className="w-4 h-4 text-white" />}
                     </div>
                     <span className="text-gray-800">{option}</span>
                   </div>
@@ -560,6 +616,7 @@ Make the question test understanding, not just memorization. Keep it relevant to
             </div>
 
             <button
+              type="button"
               onClick={submitQuiz}
               disabled={!userAnswer}
               className="w-full bg-gradient-to-r from-purple-600 to-pink-600 text-white py-4 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
@@ -572,16 +629,17 @@ Make the question test understanding, not just memorization. Keep it relevant to
     );
   }
 
-  // Complete Screen
   if (screen === 'complete' && quizData) {
     const isCorrect = userAnswer === quizData.correctAnswer;
-   
+
     return (
       <div className="min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 p-6">
         <div className="max-w-3xl mx-auto">
-          <div className={`mb-6 p-6 rounded-2xl ${
-            isCorrect ? 'bg-green-100 border-2 border-green-300' : 'bg-yellow-100 border-2 border-yellow-300'
-          }`}>
+          <div
+            className={`mb-6 p-6 rounded-2xl ${
+              isCorrect ? 'bg-green-100 border-2 border-green-300' : 'bg-yellow-100 border-2 border-yellow-300'
+            }`}
+          >
             <div className="text-center">
               <div className="text-4xl mb-2">{isCorrect ? '🎉' : '💡'}</div>
               <h2 className="text-2xl font-bold text-gray-800 mb-2">
@@ -590,7 +648,7 @@ Make the question test understanding, not just memorization. Keep it relevant to
               <p className="text-gray-700">
                 {isCorrect
                   ? 'You nailed it! Your understanding is growing.'
-                  : 'Learning is a journey. Let\'s review what we learned.'}
+                  : "Learning is a journey. Let's review what we learned."}
               </p>
             </div>
           </div>
@@ -601,9 +659,11 @@ Make the question test understanding, not just memorization. Keep it relevant to
 
             <div className="mb-4">
               <div className="text-sm font-semibold text-gray-600 mb-2">Your Answer:</div>
-              <div className={`p-3 rounded-lg ${
-                isCorrect ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
-              }`}>
+              <div
+                className={`p-3 rounded-lg ${
+                  isCorrect ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'
+                }`}
+              >
                 {userAnswer}
               </div>
             </div>
@@ -611,9 +671,7 @@ Make the question test understanding, not just memorization. Keep it relevant to
             {!isCorrect && (
               <div className="mb-4">
                 <div className="text-sm font-semibold text-gray-600 mb-2">Correct Answer:</div>
-                <div className="p-3 rounded-lg bg-green-50 border border-green-200">
-                  {quizData.correctAnswer}
-                </div>
+                <div className="p-3 rounded-lg bg-green-50 border border-green-200">{quizData.correctAnswer}</div>
               </div>
             )}
 
@@ -642,19 +700,21 @@ Make the question test understanding, not just memorization. Keep it relevant to
 
           <div className="flex gap-4">
             <button
+              type="button"
               onClick={restartPlatform}
               className="px-6 py-3 border-2 border-gray-300 text-gray-700 rounded-lg font-semibold hover:border-gray-400 transition-all"
             >
               Choose New Topic
             </button>
             <button
+              type="button"
               onClick={startNewLesson}
               disabled={loading}
               className="flex-1 bg-gradient-to-r from-purple-600 to-pink-600 text-white py-3 rounded-lg font-semibold hover:from-purple-700 hover:to-pink-700 transition-all disabled:opacity-50 flex items-center justify-center"
             >
               {loading ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2"></div>
+                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white mr-2" />
                   Creating next lesson...
                 </>
               ) : (
@@ -671,4 +731,6 @@ Make the question test understanding, not just memorization. Keep it relevant to
   }
 
   return null;
-}
+};
+
+export default AdaptiveLearningPlatform;
