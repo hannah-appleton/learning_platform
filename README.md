@@ -1,11 +1,11 @@
 # Adaptive Learning Platform
 
-A browser-based adaptive learning experience that generates personalized lessons and quizzes with the Anthropic Messages API. The entire interface runs directly in the browser using React, Tailwind via the CDN build, and Babel Standalone—no build tooling or package installation required.
+A browser-based adaptive learning experience that generates personalised lessons and quizzes with the Anthropic Messages API. The entire interface runs directly in the browser using React, Tailwind via the CDN build and Babel Standalone—no build tooling or package installation required.
 
 ## Features
 
 - Guided onboarding flow to capture the learner's subject, skill level, and preferred learning style
-- AI-generated lessons with rich markdown rendering, inline code blocks, and styled takeaways
+- AI-generated lessons with rich markdown rendering, inline code blocks and styled takeaways
 - Automatically generated practice questions with instant feedback and progress tracking
 - Local persistence of your Anthropic API key and preferred model in the browser's storage
 - Responsive Tailwind UI that works on desktops and tablets without additional setup
